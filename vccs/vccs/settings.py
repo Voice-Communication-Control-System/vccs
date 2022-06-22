@@ -10,12 +10,16 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 
+from dotenv import load_dotenv
+import os
 from pathlib import Path
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
 
+load_dotenv()
+
 sentry_sdk.init(
-    dsn="https://50f46f0f2aec45bda6af02c17904b0ab@o1069051.ingest.sentry.io/6522962",
+    dsn=os.getenv('SENTRY'),
     integrations=[
         DjangoIntegration(),
     ],
@@ -38,7 +42,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'keDkwPpDZ8iu4X6BY6G74SNddVEfrOHCDRR4NCJdgpAmFdtFo80wPovzMxIQdmU'
+SECRET_KEY = os.getenv('KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True

@@ -1,0 +1,295 @@
+{% extends "_base.html" %}
+{% load static %}
+{% block stylesheet %}
+    <style>
+        html, body { 
+            background-color: #333; 
+        }
+        video {
+            width:  320px;
+            height:  240px;
+            border:  1px solid black;
+        }
+        .static-button-width {
+            width: 120px !important;
+        }
+        .static-button-nav-width {
+            width: 60px !important;
+        }
+    </style>
+{% endblock %}
+{% block scripts %}
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+{% endblock %}
+{% block content %}        
+    <!-- 
+    the <video> and <audio> tags are all added and removed dynamically
+    in 'onAddStream', 'setup_local_media', and 'removePeer'/'disconnect'
+    -->
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-2 m-1">
+                <div class="row" id="alert-row-left">&nbsp;</div>
+                <div class="row">
+                    <audio id="audio1" autoplay controls></audio>
+                </div>
+                <div class="row">&nbsp;</div>
+                <div class="row">
+                    <button type="button" id="posAll" class="btn btn-outline-success static-button-nav-width" onclick="window.location.href='/'">ALL</button>
+                    {% for item in pos_filter %}                  
+                    <button type="button" id="pos{{ position }}" class="btn btn-outline-secondary static-button-nav-width" onclick="window.location.href='/{{ item }}/'">{{ item }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-8">
+                <div class="container">
+                    <div class="row" id="alert-row">&nbsp;</div>
+                    <div class="row">
+                        {% for position in positions %}
+                        {{ position|safe }}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-1 align-self-start">
+                <div class="row" id="alert-row-right">&nbsp;</div>
+                <button type="button" id="hangupButton" class="btn btn-danger"><i class="fa-solid fa-phone-slash fa-3x"></i></button>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block bottom_script %}
+<script>
+    // run every 5 seconds
+    /* setInterval(function() {
+        // get VATSIM server list
+        $.ajax({
+            url: 'https://status.vatsim.net/status.json',
+            headers: {
+                'Access-Control-Allow-Origin': 'https://status.vatsim.net/',
+                'Origin': 'https://status.vatsim.net'
+            },
+            dataType: "jsonp"
+        }), function(data) {
+            console.log(data)
+        }
+    }, 5000); */
+    // authenticate to websocket server
+</script>
+<script type="text/javascript">
+    'use strict';
+    
+    // keep track of some negotiation state to prevent races and errors
+    let makingOffer = false;
+    let ignoreOffer = false;
+    let isSettingRemoteAnswerPending = false;
+
+    let remotePeer;
+    let answerCall;
+    let checkAnswerStatus = false;
+    const hangupButton = document.querySelector('button#hangupButton');
+    const constraints = window.constraints = {audio: true, video: false};
+    const configuration = {iceServers: [{url: 'stun:stun.l.google.com:19302'}]};
+    const pc = new RTCPeerConnection(configuration);
+
+    hangupButton.disabled = true;
+    hangupButton.onclick = sendHangup;
+
+    // WebSockets bit
+    const heroSocket = new WebSocket(
+        'wss://vccs.vnpas.uk/api/connect/'
+    );
+
+    // do this when the websocket has opened
+    heroSocket.onopen = function(event) {
+        let open_msg = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': 'server'}, 'data': {'command': 'helo'}});
+        heroSocket.send(open_msg);
+    };
+
+    // do this before allow nav away or close
+    window.addEventListener('beforeunload', (event) => {
+        console.log("Closing")
+        let open_msg = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': 'server'}, 'data': {'command': 'bye'}});
+        heroSocket.send(open_msg);
+        hangup();
+        heroSocket.close();
+    });
+
+    // Send any ice candidates to the other peer.
+    pc.onicecandidate = ({candidate}) => {
+        let sendMessage = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': remotePeer}, 'data': {'command': 'ice', 'desc': candidate}});
+        heroSocket.send(sendMessage);
+    }
+
+    // do this when a message is received
+    heroSocket.onmessage = async function(event) {
+        console.log(event);
+        let received_msg = JSON.parse(event.data);
+        // console.log(received_msg);
+        // console.log(received_msg.command);
+        // add a peer
+        if (received_msg.command == "add_peer") {
+            if (received_msg.peer_id.includes("OBSERVER") || received_msg.peer_id == "{{ callsign }}") {
+                console.log("Ignoring OBSERVER / SELF event")
+            } else {
+                let peerId = "status" + received_msg.peer_id
+                document.getElementById(peerId).className = "btn btn-success btn-group-lg border static-button-width"
+                document.getElementById(peerId).disabled = false;
+            }
+        // remove a peer
+        } else if (received_msg.command == "remove_peer") {
+            if (received_msg.peer_id.includes("OBSERVER") || received_msg.peer_id == "{{ callsign }}") {
+                console.log("Ignoring OBSERVER / SELF event")
+            } else {
+                let peerId = "status" + received_msg.peer_id
+                document.getElementById(peerId).className = "btn btn-secondary disabled btn-group-lg border static-button-width"
+            }
+        // add a VATSIM peer presence
+        } else if (received_msg.command == "vatsim_add" && received_msg.peer_id != "{{ callsign }}") {
+            // only change VATSIM presence if the icon is disabled
+            let peerId = "status" + received_msg.peer_id
+            let peer = document.getElementById(peerId)
+            if (peer) {
+                console.log(peer.getAttribute('disabled'))
+                if (peer.getAttribute('disabled') != null) {
+                    console.log("VATSIM ADD: " + peerId)
+                    peer.className = "btn btn-warning disabled btn-group-lg border static-button-width"
+                }
+            }
+        // remove a VATSIM peer presence
+        } else if (received_msg.command == "vatsim_remove" && received_msg.peer_id != "{{ callsign }}") {
+            // only change VATSIM presence if the icon is disabled
+            let peerId = "status" + received_msg.peer_id
+            if (document.getElementById(peerId).getAttribute('disabled') != null) {
+                console.log("VATSIM REMOVE: " + peerId)
+                document.getElementById(peerId).className = "btn btn-secondary disabled btn-group-lg border static-button-width"
+            }
+        // hangup
+        } else if (received_msg.data.command == "hangup") {
+            hangup();
+        // receive a call
+        } else if (received_msg.data.command == "call") {
+            console.log(received_msg.data.desc)
+            hangupButton.disabled = false;
+            let polite = false
+            let desc = received_msg.data.desc
+            // An offer may come in while we are busy processing SRD(answer).
+            // In this case, we will be in "stable" by the time the offer is processed
+            // so it is safe to chain it on our Operations Chain now.
+            const readyForOffer = !makingOffer && (pc.signalingState == "stable" || isSettingRemoteAnswerPending);
+            const offerCollision = desc.type == "offer" && !readyForOffer;
+
+            ignoreOffer = !polite && offerCollision;
+            if (ignoreOffer) {
+                return;
+            }
+            isSettingRemoteAnswerPending = desc.type == "answer";  
+            // If you get an offer, you need to reply with an answer.
+            if (desc.type == "offer") {
+                if (!checkAnswerStatus) {
+                    let audio = new Audio("{% static 'audio/ring.wav' %}")
+                    await audio.play()
+                    answerCall = confirm("Call from " + received_msg.header.from + ". Do you want to answer?")
+                    checkAnswerStatus = true;
+                    audio.pause()
+                }
+                if (answerCall) {
+                    if (received_msg.header.from) {
+                        remotePeer = received_msg.header.from;
+                    }
+                    console.log(remotePeer);             
+                    await pc.setRemoteDescription(desc);
+                    isSettingRemoteAnswerPending = false;
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+                    await pc.setLocalDescription(await pc.createAnswer());
+                    let sendMessage = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': remotePeer}, 'data': {'command': 'call', 'desc': pc.localDescription}});
+                    console.log(sendMessage);
+                    heroSocket.send(sendMessage);
+                } else {
+                    sendHangup();
+                }
+            } else if (desc.type == "answer") {
+                await pc.setRemoteDescription(desc);
+            } else {
+                console.log('Unsupported SDP type.');
+            }
+        // receive an ice candidate
+        } else if (received_msg.data.command == "ice") {
+            console.log(received_msg.data.desc)
+            await pc.addIceCandidate(received_msg.data.desc)
+        } else {
+            console.log("Error: Don't know what to do with this message")
+        };
+    };
+
+    // Let the "negotiationneeded" event trigger offer generation.
+    pc.onnegotiationneeded = async () => {
+        console.log("Negotiating...")
+        try {
+            makingOffer = true;
+            await pc.setLocalDescription(await pc.createOffer());
+            // Send the offer to the other peer.
+            let sendMessage = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': remotePeer}, 'data': {'command': 'call', 'desc': pc.localDescription}});
+            heroSocket.send(sendMessage);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            makingOffer = false;
+        }
+    };
+
+    // Once remote track media arrives, show it in remote video element.
+    pc.ontrack = (stream) => {
+        // const audioTracks = stream.getAudioTracks();
+        // Don't set srcObject again if it is already set.
+        if (audio1.srcObject) return;
+        audio1.srcObject = event.streams[0];
+        // window.stream = stream; // make variable available to browser console
+        // audio.srcObject = stream;
+    };
+
+    // Call start() to initiate.
+    async function call(calledParty) {
+        try {
+            hangupButton.disabled = false;
+            answerCall = true;
+            checkAnswerStatus = true;
+            // change the button colour
+            let peerId = "status" + calledParty
+            document.getElementById(peerId).className = "btn btn-danger btn-group-lg border static-button-width"
+            await pc.setLocalDescription(await pc.createOffer());
+            // Send the offer to the other peer.
+            remotePeer = calledParty
+            let sendMessage = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': calledParty}, 'data': {'command': 'call', 'desc': pc.localDescription}});
+            heroSocket.send(sendMessage);
+            console.log(sendMessage);
+            // Get local stream, show it in self-view, and add it to be sent.
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+            //selfView.srcObject = stream;
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function sendHangup() {
+        let sendMessage = JSON.stringify({'header': {'from': '{{ callsign }}', 'to': remotePeer}, 'data': {'command': 'hangup'}});
+        console.log(sendMessage);
+        heroSocket.send(sendMessage);
+        hangup();
+    }
+
+    function hangup() {
+        console.log('Ending call');
+        pc.close();
+        hangupButton.disabled = true;
+        let makingOffer = false;
+        let ignoreOffer = false;
+        let isSettingRemoteAnswerPending = false;
+        checkAnswerStatus = false;
+        location.reload(true)
+        // pc.RTCPeerConnection(configuration)
+    }
+</script>
+{% endblock %}

@@ -38,13 +38,6 @@ def vccs_main_panel(request, aerodrome_icao=None):
     except KeyError:
         logger.info("OAuth Redirect")
         return redirect("/oauth/login/")
-        """ user_data = {
-            "cid": 1111111,
-            "personal": {
-                "name_full": "Test User"
-            }
-        } """
-
     
     # check if user is logged into an atc position
     all_active_controllers = VATSIM_DATA.get_controller()

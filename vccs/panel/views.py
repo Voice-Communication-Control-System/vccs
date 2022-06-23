@@ -72,9 +72,9 @@ def vccs_main_panel(request, aerodrome_icao=None):
     start = True
     for entry in all_entries:
         # narrow down to UK positions only
-        if re.match(r"^(EG[A-Z]{2}\_|LON\_|LTC\_|SCO\_|MAN\_)", entry.name_of_position):
+        if re.match(r"^(EG[A-Z]{2}\_|LON\_|LTC\_|SCO\_|MAN\_|ESSEX\_|THAMES\_|SOLENT\_)", entry.name_of_position):
             if start:
-                aerodrome = re.search(r"^(EG[A-Z]{2}|LON|LTC|SCO|MAN)", entry.prefix)
+                aerodrome = re.search(r"^(EG[A-Z]{2}|LON|LTC|SCO|MAN|ESSEX|THAMES|SOLENT)", entry.prefix)
                 aerodrome = aerodrome.group(1)
                 output.append(f'<div class="col"><div class="btn-group-vertical">')
                 start = False
@@ -107,7 +107,7 @@ def vccs_main_panel(request, aerodrome_icao=None):
                 output.append('<div class="col"><div class="btn-group-vertical">')
                 output.append(button_end)
 
-            aerodrome = re.search(r"^(EG[A-Z]{2}|LON|LTC|SCO|MAN)", entry.prefix)
+            aerodrome = re.search(r"^(EG[A-Z]{2}|LON|LTC|SCO|MAN|ESSEX|THAMES|SOLENT)", entry.prefix)
             aerodrome = aerodrome.group(1)
     output.append('</div></div>')
 
